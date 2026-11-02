@@ -9,6 +9,7 @@ from shellbox.backends.docker.machine import DockerMachineFactory
 from shellbox.backends.shellsim.machine import ShellSimMachineFactory
 from shellbox.machine import Backend, PackageSpec
 from taskcompendium.examples.protocol_probes import (
+    FETCH_REQUIREMENT,
     NONCE_FILE,
     PROBE_URL,
     WORKDIR,
@@ -84,7 +85,7 @@ async def test_url_probe_serves_declared_pages_and_labels_failed_retrievals(page
     task = TASKS["url_loading"]
     if page is not None:
         environment = task.environment_requirements.model_copy(
-            update={"tool_providers": {"web": fetch_requirement({PROBE_URL: page})}}
+            update={"tool_providers": {FETCH_REQUIREMENT: fetch_requirement({PROBE_URL: page})}}
         )
         task = task.model_copy(update={"environment_requirements": environment})
     answer = probe_nonce(task.id) if page is None else "The page could not be retrieved."

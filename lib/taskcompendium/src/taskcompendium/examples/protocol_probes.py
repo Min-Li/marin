@@ -96,6 +96,8 @@ def probe_tasks(
     ``task_environment`` is the shell machine for the file and tool probes; ``grader_environment``
     grades the answer file. The thinking and URL probes need no machine.
     """
+    tool_check = ToolExecutionCheck(tool=COMMAND_TOOL.name)
+    url_check = UrlLoadingCheck(tool=FETCH_TOOL.name, url=PROBE_URL)
     shell = task_environment.model_copy(update={"capabilities": ("shell", "filesystem"), "working_directory": WORKDIR})
     return (
         _task(
@@ -107,13 +109,13 @@ def probe_tasks(
             output_paths=(ANSWER_PATH,),
         ),
         _task(
-            ToolExecutionCheck(tool=COMMAND_TOOL.name),
+            tool_check,
             f"Run `cat /{NONCE_FILE}` with the {COMMAND_TOOL.name} tool and reply with only its "
             "output. The value cannot be guessed.",
             shell,
             interaction_tools=(COMMAND_TOOL,),
             tool_bindings={COMMAND_TOOL.name: ShellToolBinding(command_parameter="command")},
-            resources=ResourceGroups(worker=(inline_resource(NONCE_FILE, probe_nonce("tool_execution").encode()),)),
+            resources=ResourceGroups(worker=(inline_resource(NONCE_FILE, probe_nonce(tool_check.kind).encode()),)),
         ),
         _task(
             ThinkingDisabledCheck(),
@@ -121,13 +123,13 @@ def probe_tasks(
             EnvironmentRequirements(),
         ),
         _task(
-            UrlLoadingCheck(tool=FETCH_TOOL.name, url=PROBE_URL),
+            url_check,
             f"Retrieve {PROBE_URL} with the {FETCH_TOOL.name} tool and reply with only the token it "
             "contains. The token cannot be guessed.",
             EnvironmentRequirements(
                 tool_providers={
                     FETCH_REQUIREMENT: fetch_requirement(
-                        {PROBE_URL: HttpPage(status=200, body=probe_nonce("url_loading"))}
+                        {PROBE_URL: HttpPage(status=200, body=probe_nonce(url_check.kind))}
                     )
                 }
             ),

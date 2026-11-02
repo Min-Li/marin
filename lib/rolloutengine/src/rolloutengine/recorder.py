@@ -63,7 +63,7 @@ def _failure_record(operation: RolloutOperation, cause: BaseException) -> Rollou
     return RolloutFailure(type(cause).__name__, diagnostics)
 
 
-def _thinking_disabled(prompt: Prompt) -> Prompt:
+def _without_thinking(prompt: Prompt) -> Prompt:
     """Disable thinking in every request of the conversation, for a thinking-disabled check."""
     kwargs = prompt.options.get("chat_template_kwargs", {})
     if kwargs.get(ENABLE_THINKING, False):
@@ -239,7 +239,7 @@ class _Recorder:
         assert deadlines is not None
         if current is None and deadlines.total.when() is None and self.limits.total_turn_timeout is not None:
             deadlines.total.reschedule(asyncio.get_running_loop().time() + self.limits.total_turn_timeout)
-        conversation = _Conversation(_thinking_disabled(prompt) if self.disable_thinking else prompt, self.mode)
+        conversation = _Conversation(_without_thinking(prompt) if self.disable_thinking else prompt, self.mode)
         request = _Request(self.step_observations, None, conversation, self._waited())
         return await self._send(request, conversation.request((), prompt.token_ids))
 
