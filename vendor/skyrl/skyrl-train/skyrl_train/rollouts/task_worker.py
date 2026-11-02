@@ -61,6 +61,7 @@ from skyrl_train.rollouts.finalization import finalize_trajectory_batch, propaga
 from skyrl_train.rollout_observability import rollout_phase, rollout_wait
 from skyrl_train.trajectory_runners.trajectory_retention import RetentionSink
 from skyrl_train.trajectory_runners.model_clients import (
+    REASONING_VIOLATION_TOKENS_KEY,
     RAW_RESPONSES_KEY,
     REASONING_VIOLATIONS_KEY,
     DirectModelClient,
@@ -73,7 +74,12 @@ from skyrl_train.rollouts.task_projections import (
     WholeTaskProjection,
     logprobs_requested,
 )
-from skyrl_train.rollouts.training_record import TrainingRollout, reject_malformed_reasoning, training_rollout
+from skyrl_train.rollouts.training_record import (
+    REASONING_VIOLATION_TOKEN_METADATA_KEY,
+    TrainingRollout,
+    reject_malformed_reasoning,
+    training_rollout,
+)
 from skyrl_train.utils.harbor_errors import ErrorHandlingConfig
 from skyrl_train.trajectory_runners.types import (
     RESPONSE_POLICY_STEPS_KEY,
@@ -207,6 +213,7 @@ async def _model_turn(
                 if output.get(name) is not None
             },
             "generation_token_budget": (output.get("generation_token_budgets") or [None])[0],
+            REASONING_VIOLATION_TOKEN_METADATA_KEY: (output.get(REASONING_VIOLATION_TOKENS_KEY) or [None])[0],
         },
         reasoning_violation=(output.get(REASONING_VIOLATIONS_KEY) or [None])[0],
         raw_response=(output.get(RAW_RESPONSES_KEY) or [None])[0],
