@@ -13,6 +13,7 @@ from shellbox.machine import NetworkPolicy
 from taskcompendium.grading_result import GradeResult, GradingFailure, Outcome
 from taskcompendium.models import TaskSpec, TurnEvidence
 from verifyit.modes.grade_judge import JudgeConnection
+from verifyit.reasoning_markup import ReasoningViolation
 
 LENGTH_STOP_REASON = "length"
 MAX_TURNS_STOP_REASON = "max_turns"
@@ -88,7 +89,11 @@ class ModelTurn:
     logprobs: tuple[float, ...] | None
     """The log probability of each response token when it was sampled, or ``None`` if the transport gives none."""
     stop_reason: str
-    """Why generation stopped, for example ``"stop"`` or ``"length"``. A ``"length"`` stop refuses the next ``reply``."""
+    """Why generation stopped, for example ``"stop"`` or ``"length"``. A ``"length"`` stop refuses the next ``reply``.
+
+    It is ``"length"`` whenever generation ended on the output token budget, including a reply that a server's tool
+    parser reports as tool calls. The shell harness does not execute tool calls from such a turn.
+    """
     text: str = ""
     """The response as plain text. A harness that reads tags in the text, not tool calls, uses it."""
     metadata: dict[str, Any] = field(default_factory=dict)
@@ -97,6 +102,8 @@ class ModelTurn:
     """Token counts that the transport reports. The token budget counts them instead of the token IDs."""
     evidence: TurnEvidence | None = None
     """What the serving side sent and returned, for transports that can observe the rendered prompt."""
+    reasoning_violation: ReasoningViolation | None = None
+    """The malformed reasoning span that the transport found in the reply, if any."""
 
     @property
     def request_tokens(self) -> int:
@@ -111,7 +118,11 @@ Model = Callable[[ModelRequest], Awaitable[ModelTurn]]
 
 
 class GenerationLimitReached(Exception):
-    """The rendered prompt leaves no permitted generation budget."""
+    """The rendered prompt leaves no permitted generation budget.
+
+    ``prompt_token_ids`` are the rendered prompt tokens, or empty when the server rejected the prompt without
+    rendering it. The engine records them only when no turn of the conversation completed.
+    """
 
     def __init__(self, prompt_token_ids: tuple[int, ...]):
         self.prompt_token_ids = prompt_token_ids
