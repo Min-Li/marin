@@ -28,3 +28,13 @@ every run. Each run writes `result.json` (scores and timings) and `eval.log`.
 - Missing or partial results fail the check.
 
 Test: `uv run pytest experiments/evaluation/serving_parity/test_score_check.py`
+
+## Nightly
+
+The serving-score workflow runs at 12:17 UTC and supports manual dispatch.
+Scheduled jobs can queue for 4½ hours; manual jobs default to one hour
+(`--scheduling-timeout` takes seconds). Runtime stays one hour, with zero retries.
+
+A scheduling timeout before startup produces a no-capacity warning. Scheduled
+runs notify Slack for score gaps, errors, or three consecutive nights without
+capacity. Every run uses fresh output paths and retains its outcome artifacts.
