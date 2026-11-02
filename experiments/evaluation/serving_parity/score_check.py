@@ -46,9 +46,14 @@ def main() -> None:
     )
     args = parser.parse_args()
     configure_coreweave_s3()
-    h100 = json.loads(StoragePath(args.h100).read_text())
-    tpu = json.loads(StoragePath(args.tpu).read_text())
-    raise SystemExit(0 if check_scores(h100, tpu, args.tolerance) else 1)
+    try:
+        h100 = json.loads(StoragePath(args.h100).read_text())
+        tpu = json.loads(StoragePath(args.tpu).read_text())
+        passed = check_scores(h100, tpu, args.tolerance)
+    except Exception as error:
+        print(f"ERROR: {type(error).__name__}; score check could not complete")
+        raise SystemExit(2) from error
+    raise SystemExit(0 if passed else 1)
 
 
 if __name__ == "__main__":

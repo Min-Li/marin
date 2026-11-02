@@ -31,10 +31,6 @@ Test: `uv run pytest experiments/evaluation/serving_parity/test_score_check.py`
 
 ## Nightly
 
-The serving-score workflow runs at 12:17 UTC and supports manual dispatch.
-Scheduled jobs can queue for 4½ hours; manual jobs default to one hour
-(`--scheduling-timeout` takes seconds). Runtime stays one hour, with zero retries.
-
-A scheduling timeout before startup produces a no-capacity warning. Scheduled
-runs notify Slack for score gaps, errors, or three consecutive nights without
-capacity. Every run uses fresh output paths and retains its outcome artifacts.
+The workflow runs at 12:17 UTC (manual dispatch also supported). Scheduled jobs
+queue for 4½ hours; manual jobs keep one hour (`--scheduling-timeout`, seconds).
+Slack alerts on scheduled failures or three consecutive nights without capacity.
