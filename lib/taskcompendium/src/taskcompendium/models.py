@@ -20,16 +20,7 @@ from enum import StrEnum
 from pathlib import PurePosixPath
 from typing import Annotated, ClassVar, Literal, NoReturn
 
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    Field,
-    JsonValue,
-    PositiveInt,
-    TypeAdapter,
-    field_validator,
-    model_validator,
-)
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, TypeAdapter, field_validator, model_validator
 from rigging.filesystem.path_validation import validate_relative_file_path, validate_relative_file_paths
 from shellbox.machine import CommandSemantics as CommandSemantics
 from shellbox.machine import PackageSpec, UnsupportedMachineSpec
@@ -65,40 +56,6 @@ class AnswerType(StrEnum):
     STATE = "state"
     WORKSPACE_STATE = "workspace_state"
     NATIVE_ACTION = "native_action"
-
-
-class ReasoningMode(StrEnum):
-    """Whether the task asks the model to reason before it answers.
-
-    ``MODEL_DEFAULT`` sends no reasoning setting, so the chat template's default applies.
-    """
-
-    ON = "on"
-    OFF = "off"
-    MODEL_DEFAULT = "model_default"
-
-
-ENABLE_THINKING = "enable_thinking"
-"""The chat-template argument that turns reasoning on or off."""
-
-
-def reasoning_template_kwargs(reasoning: ReasoningMode) -> dict[str, bool]:
-    """The chat-template arguments that request ``reasoning``; none for the model default."""
-    if reasoning == ReasoningMode.MODEL_DEFAULT:
-        return {}
-    return {ENABLE_THINKING: reasoning == ReasoningMode.ON}
-
-
-class ReasoningApplied(StrEnum):
-    """The reasoning setting a served prompt actually rendered, as the serving side observed it.
-
-    ``UNVERIFIED`` means the serving side could not confirm which setting the prompt rendered, for example
-    because the template renders the same prompt either way or the prompt was not observable.
-    """
-
-    ON = "on"
-    OFF = "off"
-    UNVERIFIED = "unverified"
 
 
 class ReasoningMarkupPolicy(StrEnum):
@@ -686,7 +643,7 @@ Grader = Annotated[VerifyitGrader | ScriptGrader | NoGrader, Field(discriminator
 
 
 class RequiredFileCheck(BaseModel):
-    """The answer must be a nonempty file at the task's output path, not a chat claim."""
+    """Every output path must hold a nonempty file when the attempt ends."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -702,8 +659,12 @@ class ToolExecutionCheck(BaseModel):
     tool: str = Field(min_length=1)
 
 
+ENABLE_THINKING = "enable_thinking"
+"""The chat-template argument that a thinking-disabled check sets to false on every request."""
+
+
 class ThinkingDisabledCheck(BaseModel):
-    """With reasoning off, the response must contain no reasoning channel or delimiters."""
+    """Every request disables thinking, and no raw response may contain a reasoning delimiter."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -774,32 +735,18 @@ class SubmissionFailure(ValueError):
 
 
 @dataclass(frozen=True)
-class TurnEvidence:
-    """What one model turn was sent and returned, as the serving side recorded it.
-
-    ``raw_response`` is the decoded response with special tokens kept. ``request_settings`` are the
-    request options actually applied. ``reasoning_markers`` are the reasoning delimiters the served
-    chat template defines.
-    """
-
-    raw_response: str
-    request_settings: Mapping[str, JsonValue]
-    reasoning_applied: ReasoningApplied
-    reasoning_markers: tuple[str, ...]
-
-
-@dataclass(frozen=True)
 class GradingAttempt:
     """Captured trial evidence; state absence is distinct from captured JSON null.
 
-    ``turns`` holds serving evidence for each model turn when the runtime recorded it.
+    ``raw_responses`` holds each model turn's response decoded with its special tokens, when the
+    runtime recorded every one.
     """
 
     conversation: ConversationTrace
     files: Mapping[str, bytes] = field(default_factory=dict)
     state: StateSubmission | None = None
     stop_reason: str | None = None
-    turns: tuple[TurnEvidence, ...] = ()
+    raw_responses: tuple[str, ...] = ()
 
 
 JSON_VALUE = TypeAdapter(JsonValue, config=ConfigDict(strict=True, allow_inf_nan=False))
@@ -991,12 +938,7 @@ class TaskSpec(BaseModel):
     grader: Grader
     reasoning_markup: ReasoningMarkupPolicy = ReasoningMarkupPolicy.GRADE
     source: Source
-    # A default protocol field is left out of the serialized spec, so tasks without one keep their digests.
-    turn_budget: PositiveInt | None = Field(default=None, exclude_if=lambda value: value is None)
-    """The model turns an attempt may take, replacing the runtime's turn limit; ``None`` keeps that limit."""
-    reasoning: ReasoningMode = Field(
-        default=ReasoningMode.MODEL_DEFAULT, exclude_if=lambda value: value == ReasoningMode.MODEL_DEFAULT
-    )
+    # Omitted when unset, so tasks without a check keep their serialized bytes and digests.
     protocol_check: ProtocolCheck | None = Field(default=None, exclude_if=lambda value: value is None)
     schema_version: str = SCHEMA_VERSION
     resources: ResourceGroups = Field(default_factory=ResourceGroups)
@@ -1033,8 +975,6 @@ class TaskSpec(BaseModel):
         check = self.protocol_check
         if isinstance(check, RequiredFileCheck) and (self.answer_type != AnswerType.FILE or not self.output_paths):
             raise ValueError("A required-file check needs a file answer with output paths")
-        if isinstance(check, ThinkingDisabledCheck) and self.reasoning != ReasoningMode.OFF:
-            raise ValueError("A thinking-disabled check needs reasoning off")
         if isinstance(check, ToolExecutionCheck | UrlLoadingCheck):
             if check.tool not in {tool.name for tool in self.interaction_tools}:
                 raise ValueError(f"The protocol check's tool {check.tool!r} is not an interaction tool")

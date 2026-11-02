@@ -9,7 +9,6 @@ from verifyit.tool_call_markup import TOOL_OPEN
 from taskcompendium.examples.protocol_probes import (
     ANSWER_PATH,
     PROBE_URL,
-    golden_transcript,
     probe_nonce,
     probe_tasks,
 )
@@ -21,15 +20,10 @@ from taskcompendium.models import (
     ConversationTrace,
     EnvironmentRequirements,
     GradingAttempt,
-    ReasoningApplied,
-    ReasoningMode,
     TaskSpec,
     TextMessage,
     ToolResult,
-    TurnEvidence,
 )
-from taskcompendium.pipeline.controls import control_suite
-from taskcompendium.pipeline.models import CheckStatus, Controls
 from taskcompendium.protocol import PROTOCOL_DIAGNOSTICS_KEY, assess_protocol
 from taskcompendium.runtime.task_grading import grade_task
 
@@ -39,11 +33,9 @@ TASKS = {
     for task in probe_tasks(
         task_environment=EnvironmentRequirements(command_semantics=CommandSemantics.SHELL_SIMULATOR),
         grader_environment=EnvironmentRequirements(command_semantics=CommandSemantics.LINUX_PROCESS, docker_image=IMAGE),
-        variants=1,
     )
     if task.protocol_check is not None
 }
-THINKING_MARKERS = ("<think>", "</think>")
 
 
 def answer(task: TaskSpec, text: str | None = None) -> TextMessage:
@@ -59,8 +51,8 @@ def shell_result(exit_code: int = 0, stdout: str = "", reason: str = "exited") -
     return {"exit_code": exit_code, "reason": reason, "stdout": stdout, "stderr": ""}
 
 
-def protocol(task: TaskSpec, *events, turns: tuple[TurnEvidence, ...] = ()) -> dict:
-    attempt = GradingAttempt(ConversationTrace(events=(*task.context.events, *events)), turns=turns)
+def protocol(task: TaskSpec, *events, raw_responses: tuple[str, ...] = ()) -> dict:
+    attempt = GradingAttempt(ConversationTrace(events=(*task.context.events, *events)), raw_responses=raw_responses)
     return grade_task(task, attempt).diagnostics[PROTOCOL_DIAGNOSTICS_KEY]
 
 
@@ -173,39 +165,22 @@ def test_url_loading_counts_failed_retrievals_as_attempts(events, expected):
 
 
 THINKING = TASKS["thinking_disabled"]
-OFF_SETTINGS = {"chat_template_kwargs": {"enable_thinking": False}}
 
 
 @pytest.mark.parametrize(
-    "raw,expected",
+    "raw_responses,expected",
     [
-        pytest.param(probe_nonce(THINKING.id), ("respected", True, True, True), id="respected"),
+        pytest.param((probe_nonce(THINKING.id),), ("respected", True, True, True), id="respected"),
         pytest.param(
-            f"<think>The token is given.</think>{probe_nonce(THINKING.id)}",
+            (f"<think>The token is given.</think>{probe_nonce(THINKING.id)}",),
             ("reasoning_emitted", False, True, True),
             id="reasoning-emitted",
         ),
+        pytest.param((), (None, None, None, None), id="no-raw-responses"),
     ],
 )
-def test_thinking_disabled_reads_the_raw_response_of_every_turn(raw, expected):
-    turn = TurnEvidence(raw, OFF_SETTINGS, ReasoningApplied.OFF, THINKING_MARKERS)
-    assert results(protocol(THINKING, answer(THINKING), turns=(turn,))) == expected
-
-
-@pytest.mark.parametrize(
-    "turns",
-    [
-        pytest.param((), id="no-evidence"),
-        pytest.param(
-            (TurnEvidence("token", OFF_SETTINGS, ReasoningApplied.UNVERIFIED, THINKING_MARKERS),), id="unverified"
-        ),
-        pytest.param((TurnEvidence("token", OFF_SETTINGS, ReasoningApplied.OFF, ()),), id="no-markers"),
-    ],
-)
-def test_thinking_disabled_is_not_evaluable_without_serving_evidence(turns):
-    assessment = protocol(THINKING, answer(THINKING), turns=turns)
-    assert "not_evaluable" in assessment
-    assert "protocol_compliance" not in assessment
+def test_thinking_disabled_reads_the_raw_response_of_every_turn(raw_responses, expected):
+    assert results(protocol(THINKING, answer(THINKING), raw_responses=raw_responses)) == expected
 
 
 REQUIRED_FILE = TASKS["required_file"]
@@ -227,28 +202,8 @@ def test_required_file_reports_submission_completeness_only(files, grade, expect
     assert assessment.protocol_compliance is None
 
 
-@pytest.mark.parametrize("check", ["tool_execution", "thinking_disabled", "url_loading"])
-def test_probe_golden_transcripts_pass_their_answer_and_protocol(check):
-    report = control_suite(Controls(golden=golden_transcript), None).run(TASKS[check])
-    assert [(result.check, result.status) for result in report.checks] == [("golden", CheckStatus.PASS)]
-
-
-def test_a_golden_control_that_breaks_the_protocol_fails():
-    def without_tool(task: TaskSpec):
-        transcript = golden_transcript(task)
-        assert transcript is not None
-        return type(transcript)((transcript.events[-1],))
-
-    report = control_suite(Controls(golden=without_tool), None).run(TOOL)
-    [result] = report.checks
-    assert (result.check, result.status) == ("golden", CheckStatus.FAIL)
-    assert "protocol_compliance" in (result.detail or "")
-
-
-def test_a_task_without_protocol_fields_serializes_without_them():
-    plain = TOOL.model_copy(
-        update={"turn_budget": None, "reasoning": ReasoningMode.MODEL_DEFAULT, "protocol_check": None}
-    )
+def test_a_task_without_a_protocol_check_serializes_without_the_field():
+    plain = TOOL.model_copy(update={"protocol_check": None})
     serialized = json.loads(plain.model_dump_json())
-    assert {"turn_budget", "reasoning", "protocol_check"}.isdisjoint(serialized)
+    assert "protocol_check" not in serialized
     assert TaskSpec.model_validate(serialized) == plain

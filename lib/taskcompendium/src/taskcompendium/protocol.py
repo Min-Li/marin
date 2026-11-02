@@ -16,6 +16,7 @@ from typing import Any
 
 from pydantic import JsonValue
 from shellbox.machine import ExitReason
+from verifyit.reasoning_markup import REASONING_DELIMITERS
 from verifyit.tool_call_markup import TOOL_OPEN
 
 from taskcompendium.grading_result import GradeResult, Outcome
@@ -23,7 +24,6 @@ from taskcompendium.models import (
     AssistantToolCalls,
     ConversationEvent,
     GradingAttempt,
-    ReasoningApplied,
     RequiredFileCheck,
     TaskSpec,
     TextMessage,
@@ -54,12 +54,6 @@ class ProtocolLabel(StrEnum):
     HTTP_ERROR = "http_error"
     NETWORK_ERROR = "network_error"
     NOT_ATTEMPTED = "not_attempted"
-
-
-class ProtocolAxis(StrEnum):
-    PROTOCOL_COMPLIANCE = "protocol_compliance"
-    SUBMISSION_COMPLETENESS = "submission_completeness"
-    ANSWER_CORRECTNESS = "answer_correctness"
 
 
 @dataclass(frozen=True)
@@ -168,12 +162,8 @@ def _url_loading(check: UrlLoadingCheck, events: tuple[ConversationEvent, ...]) 
     return ProtocolLabel.NETWORK_ERROR
 
 
-def _thinking_disabled(attempt: GradingAttempt) -> ProtocolLabel | None:
-    """The label, or ``None`` when the serving evidence cannot show that thinking was off."""
-    turns = attempt.turns
-    if not turns or any(turn.reasoning_applied != ReasoningApplied.OFF or not turn.reasoning_markers for turn in turns):
-        return None
-    emitted = any(marker in turn.raw_response for turn in turns for marker in turn.reasoning_markers)
+def _thinking_disabled(attempt: GradingAttempt) -> ProtocolLabel:
+    emitted = any(marker in raw for raw in attempt.raw_responses for pair in REASONING_DELIMITERS for marker in pair)
     return ProtocolLabel.REASONING_EMITTED if emitted else ProtocolLabel.RESPECTED
 
 
@@ -200,9 +190,9 @@ def assess_protocol(task: TaskSpec, attempt: GradingAttempt, grade: GradeResult)
     submitted = grade.status == Outcome.GRADED
     events = _attempt_events(task, attempt)
     if isinstance(check, ThinkingDisabledCheck):
+        if not attempt.raw_responses:
+            return ProtocolAssessment(check.kind, None, "the runtime recorded no raw responses")
         label = _thinking_disabled(attempt)
-        if label is None:
-            return ProtocolAssessment(check.kind, None, "serving evidence does not show reasoning was off")
         return ProtocolAssessment(check.kind, label, None, label == ProtocolLabel.RESPECTED, submitted, correct)
     if isinstance(check, ToolExecutionCheck):
         label = _tool_execution(check, events)

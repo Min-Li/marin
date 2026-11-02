@@ -18,7 +18,6 @@ from taskcompendium.models import (
     GradingAttempt,
     NoGrader,
     ScriptGrader,
-    TurnEvidence,
     VerifyitGrader,
     grades_with_judge,
     verifyit_spec,
@@ -58,7 +57,7 @@ async def _grade_rollout(
     spec: TaskRolloutSpec,
     messages: tuple[dict[str, Any], ...],
     outputs: dict[str, bytes],
-    turns: tuple[TurnEvidence, ...],
+    raw_responses: tuple[str, ...],
     machine: Machine | None,
     factories: Mapping[str, MachineFactory],
     cleanup: _Cleanup,
@@ -68,13 +67,14 @@ async def _grade_rollout(
 ) -> GradeResult:
     """Grade the attempt, then add the task's protocol assessment when it declares a protocol check.
 
-    ``outputs`` holds the task's ``output_paths`` that the engine captured after the harness ended, and
-    ``turns`` the serving evidence of each model turn.
+    ``outputs`` holds the task's ``output_paths`` that the engine captured after the harness ended.
     """
     task = spec.task
     if isinstance(task.grader, NoGrader):
         return GradeResult(Outcome.UNAVAILABLE, None, task.grader.reason)
-    attempt = GradingAttempt(chat_conversation(list(messages)), outputs, stop_reason=stop_reason, turns=turns)
+    attempt = GradingAttempt(
+        chat_conversation(list(messages)), outputs, stop_reason=stop_reason, raw_responses=raw_responses
+    )
     grade = await _answer_grade(spec, attempt, machine, factories, cleanup, resources)
     return with_protocol_assessment(task, attempt, grade)
 

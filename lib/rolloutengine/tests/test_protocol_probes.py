@@ -16,25 +16,19 @@ from taskcompendium.examples.protocol_probes import (
     probe_tasks,
 )
 from taskcompendium.fetch import FETCH_ACTION_INTERFACE, HttpPage, NetworkFailure, fetch_requirement
-from taskcompendium.models import (
-    CommandSemantics,
-    EnvironmentRequirements,
-    ReasoningApplied,
-    ReasoningMode,
-    TurnEvidence,
-)
+from taskcompendium.models import CommandSemantics, EnvironmentRequirements
 from taskcompendium.protocol import PROTOCOL_DIAGNOSTICS_KEY
 
 from rolloutengine.harness.fetch import FetchProvider
 from rolloutengine.harness.shell import ShellHarness
 from rolloutengine.models import ModelRequest, ModelTurn, Prompt, RolloutContractError
-from rolloutengine.test_support import SHELL, ReplayModel, arithmetic_task, engine, machine_runtime, rollout_spec
+from rolloutengine.test_support import SHELL, ReplayModel, engine, machine_runtime, rollout_spec
 
 FIXTURE_IMAGE = "fixture@sha256:" + "0" * 64
 ENVIRONMENT = EnvironmentRequirements(command_semantics=CommandSemantics.LINUX_PROCESS, docker_image=FIXTURE_IMAGE)
 TASKS = {
     task.protocol_check.kind: task
-    for task in probe_tasks(task_environment=ENVIRONMENT, grader_environment=ENVIRONMENT, variants=1)
+    for task in probe_tasks(task_environment=ENVIRONMENT, grader_environment=ENVIRONMENT)
     if task.protocol_check is not None
 }
 FETCH_HARNESS = {SHELL: ShellHarness(command_timeout=None, tools={FETCH_ACTION_INTERFACE: FetchProvider()})}
@@ -127,63 +121,50 @@ async def test_fetch_provider_answers_unknown_urls_and_bad_arguments_as_observat
 
 @dataclass
 class ServedModel:
-    """Answer with a fixed raw response, recording what each request asked for."""
+    """Answer with a fixed raw response, recording each request."""
 
     raw_response: str
-    applied: ReasoningApplied
     requests: list[ModelRequest] = field(default_factory=list)
 
     async def complete(self, request: ModelRequest) -> ModelTurn:
         self.requests.append(request)
-        evidence = TurnEvidence(self.raw_response, request.options, self.applied, ("<think>", "</think>"))
         visible = self.raw_response.rsplit("</think>", 1)[-1]
-        return ModelTurn(reply(visible), (10, 11), (20,), (-0.5,), "stop", evidence=evidence)
+        return ModelTurn(reply(visible), (10, 11), (20,), (-0.5,), "stop", raw_response=self.raw_response)
 
 
 @pytest.mark.parametrize(
-    "raw,applied,expected",
+    "raw,expected",
     [
-        pytest.param("{nonce}", ReasoningApplied.OFF, ("respected", True), id="respected"),
-        pytest.param("<think>easy</think>{nonce}", ReasoningApplied.OFF, ("reasoning_emitted", False), id="emitted"),
-        pytest.param("{nonce}", ReasoningApplied.UNVERIFIED, (None, None), id="unverified"),
+        pytest.param("{nonce}", ("respected", True), id="respected"),
+        pytest.param("<think>easy</think>{nonce}", ("reasoning_emitted", False), id="emitted"),
     ],
 )
-async def test_thinking_probe_requests_reasoning_off_and_grades_the_served_evidence(raw, applied, expected):
+async def test_thinking_probe_disables_thinking_and_grades_the_raw_response(raw, expected):
     task = TASKS["thinking_disabled"]
-    model = ServedModel(raw.format(nonce=probe_nonce(task.id)), applied)
+    model = ServedModel(raw.format(nonce=probe_nonce(task.id)))
 
     graded = await engine(model).run_task(rollout_spec(task))
 
     assert [request.options["chat_template_kwargs"] for request in model.requests] == [{"enable_thinking": False}]
     assessment = protocol(graded)
-    assert (assessment.get("label"), assessment.get("protocol_compliance")) == expected
+    assert (assessment["label"], assessment["protocol_compliance"]) == expected
     assert graded.grade.reward == 1.0
 
 
 class ThinkingHarness:
-    """A harness that asks for reasoning whatever the task requests."""
+    """A harness that enables thinking whatever the task requests."""
 
     def check(self, task, limits):
         pass
 
     async def run(self, context, session):
-        await session.start(Prompt(({"role": "user", "content": "Return 12."},), THINKING_ON))
+        prompt = Prompt(
+            ({"role": "user", "content": "Return 12."},), {"chat_template_kwargs": {"enable_thinking": True}}
+        )
+        await session.start(prompt)
 
 
-THINKING_ON = {"chat_template_kwargs": {"enable_thinking": True}}
-
-
-async def test_a_harness_cannot_override_the_tasks_reasoning_mode():
-    spec = rollout_spec(arithmetic_task(reasoning=ReasoningMode.OFF), harness="thinking")
-    with pytest.raises(RolloutContractError, match="contradict"):
+async def test_a_harness_cannot_enable_thinking_for_a_thinking_disabled_check():
+    spec = rollout_spec(TASKS["thinking_disabled"], harness="thinking")
+    with pytest.raises(RolloutContractError, match="thinking-disabled"):
         await engine(ReplayModel([reply("12")]), harnesses={"thinking": ThinkingHarness()}).run_task(spec)
-
-
-async def test_a_model_default_task_keeps_the_harness_reasoning_settings():
-    model = ReplayModel([reply("12")])
-
-    await engine(model, harnesses={"thinking": ThinkingHarness()}).run_task(
-        rollout_spec(arithmetic_task(), harness="thinking")
-    )
-
-    assert model.requests[0].options == THINKING_ON

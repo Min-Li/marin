@@ -44,8 +44,6 @@ flowchart LR
 | `grader` | How an attempt is graded. See [What is a grader?](#what-is-a-grader) |
 | `reasoning_markup` | `grade` (default) scores an attempt as usual. `reject` grades an attempt whose model reply has a malformed reasoning span (unclosed, repeated, or a stray closer) as a reward-0 `submission_failure`. Applied by the SkyRL rollout worker before grading results are grouped. |
 | `source` | Upstream dataset, revision, row, and importer revision retained as audit provenance. |
-| `turn_budget` | Optional model turn limit that replaces the runtime's. Omitted, the runtime's limit applies. |
-| `reasoning` | `on` or `off` sets the chat template's `enable_thinking`; the default, `model_default`, sends nothing. |
 | `protocol_check` | Optional structural check graded beside the answer. See [Protocol checks](#protocol-checks). |
 | `schema_version` | Version of the serialized spec: `0.28`. Readers reject other versions. |
 | `resources` | Inline files grouped under `all`, `worker`, `oracle`, and `verifier` visibility. |
@@ -83,15 +81,16 @@ cannot decide the check, the result carries `not_evaluable` with the reason inst
 | --- | --- | --- |
 | `required_file` | A `file` answer and `output_paths` | `submitted`, `missing_file`, `empty_file` |
 | `tool_execution` | `tool` declared in `interaction_tools` | `executed`, `command_failed`, `no_invocation`, `markup_in_text`, `invalid_invocation`, `not_executed`, `executor_timeout`, `executor_failure` |
-| `thinking_disabled` | `reasoning=off` | `respected`, `reasoning_emitted` |
+| `thinking_disabled` | Nothing | `respected`, `reasoning_emitted` |
 | `url_loading` | `tool` declared in `interaction_tools`, and the `url` to load | `retrieved`, `http_error`, `network_error`, `not_attempted` |
 
 The required-file check reports only submission completeness, because writing the file is the
 protocol under test. A URL attempt that fails with an HTTP or network error still complies; the
-label records the failure. The thinking check reads `GradingAttempt.turns`: each turn records the
-raw decoded response, the request settings sent, whether the server applied the reasoning setting,
-and the template's reasoning delimiters. If any turn cannot show that reasoning was off, the check
-is not evaluable. `taskcompendium.examples.protocol_probes` builds one minimal task per check.
+label records the failure. A thinking-disabled check makes RolloutEngine send
+`enable_thinking=False` with every request. The check then searches each turn's response, decoded
+with its special tokens (`GradingAttempt.raw_responses`), for a reasoning delimiter. It is not
+evaluable when the runtime recorded no raw responses. `taskcompendium.examples.protocol_probes`
+builds one minimal task per check.
 
 ## What can a task represent?
 
@@ -423,5 +422,5 @@ uvx --from 'pyrefly>=1.0.0,<1.1.0' pyrefly check
 Schema `0.28` adds `FinalAction.normal_submission` for private unsolvability labels while
 preserving the normal answer presentation. Reconvert
 older TaskSpecs before using the updated readers; no compatibility shim is supplied.
-The optional `turn_budget`, `reasoning`, and `protocol_check` fields are omitted from the
-serialized spec when unset, so tasks that do not use them keep their bytes and digests.
+The optional `protocol_check` field is omitted from the serialized spec when unset, so tasks
+without one keep their bytes and digests.

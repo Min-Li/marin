@@ -61,6 +61,7 @@ from skyrl_train.rollouts.finalization import finalize_trajectory_batch, propaga
 from skyrl_train.rollout_observability import rollout_phase, rollout_wait
 from skyrl_train.trajectory_runners.trajectory_retention import RetentionSink
 from skyrl_train.trajectory_runners.model_clients import (
+    RAW_RESPONSES_KEY,
     REASONING_VIOLATIONS_KEY,
     DirectModelClient,
     GenerationBudgetExceededError,
@@ -194,7 +195,6 @@ async def _model_turn(
         logprobs=None if logprobs is None else tuple(logprobs[0]),
         stop_reason=output["stop_reasons"][0],
         text=output.get("responses", [message.get("content") or ""])[0],
-        evidence=(output.get("turn_evidence") or [None])[0],
         metadata={
             **{
                 name: output[name][0]
@@ -209,6 +209,7 @@ async def _model_turn(
             "generation_token_budget": (output.get("generation_token_budgets") or [None])[0],
         },
         reasoning_violation=(output.get(REASONING_VIOLATIONS_KEY) or [None])[0],
+        raw_response=(output.get(RAW_RESPONSES_KEY) or [None])[0],
     )
 
 

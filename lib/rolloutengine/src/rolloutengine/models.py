@@ -11,7 +11,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 from shellbox.machine import NetworkPolicy
 from taskcompendium.grading_result import GradeResult, GradingFailure, Outcome
-from taskcompendium.models import TaskSpec, TurnEvidence
+from taskcompendium.models import TaskSpec
 from verifyit.modes.grade_judge import JudgeConnection
 from verifyit.reasoning_markup import ReasoningViolation
 
@@ -100,8 +100,8 @@ class ModelTurn:
     """Extra data from the transport, such as top-k log probabilities. The engine passes it on unread."""
     usage: TokenUsage | None = None
     """Token counts that the transport reports. The token budget counts them instead of the token IDs."""
-    evidence: TurnEvidence | None = None
-    """What the serving side sent and returned, for transports that can observe the rendered prompt."""
+    raw_response: str | None = None
+    """The response decoded with its special tokens, for transports that decode it."""
     reasoning_violation: ReasoningViolation | None = None
     """The malformed reasoning span that the transport found in the reply, if any."""
 
@@ -442,7 +442,7 @@ class MachineRuntimeSpec(BaseModel):
 
 
 class RolloutLimits(BaseModel):
-    """Turn, token, and time limits for one attempt; a task's ``turn_budget`` replaces ``max_turns``.
+    """Turn, token, and time limits for one attempt.
 
     ``max_total_tokens`` stops model requests when the tokens spent, plus the known part of the next
     prompt, reach the threshold. The known part is the last request's prompt and response. The new
