@@ -11,22 +11,27 @@ from rigging.filesystem.s3_compat import configure_coreweave_s3
 from rigging.filesystem.storage_path import StoragePath
 
 
+def scored_items(result: dict, hardware: str) -> tuple[dict, float]:
+    """Validate one arm even when its peer could not start."""
+    items = result["items"]
+    identity = {item["id"]: item["sha256"] for item in items}
+    if (
+        result["hardware"] != hardware
+        or len(items) != 100
+        or len(identity) != 100
+        or any(item["correct"] not in (0, 1) for item in items)
+    ):
+        raise ValueError("Expected 100 unique, scored GSM8K items on the requested hardware")
+    return identity, sum(item["correct"] for item in items) / 100
+
+
 def check_scores(h100: dict, tpu: dict, tolerance: float = 0.05) -> bool:
     """Print both scores; reject missing/different items instead of passing partial runs."""
     if not math.isfinite(tolerance) or not 0 <= tolerance <= 1:
         raise ValueError("Tolerance must be between 0 and 1")
-    if h100["hardware"] != "h100" or tpu["hardware"] != "v4":
-        raise ValueError("Expected an H100 result and a v4 result")
     if (h100["model"], h100["revision"]) != (tpu["model"], tpu["revision"]):
         raise ValueError("Model checkpoints differ")
-    scores, identities = [], []
-    for result in (h100, tpu):
-        items = result["items"]
-        identity = {item["id"]: item["sha256"] for item in items}
-        if len(items) != 100 or len(identity) != 100 or any(item["correct"] not in (0, 1) for item in items):
-            raise ValueError("Expected 100 unique, scored GSM8K items")
-        scores.append(sum(item["correct"] for item in items) / 100)
-        identities.append(identity)
+    identities, scores = zip(scored_items(h100, "h100"), scored_items(tpu, "v4"), strict=True)
     if identities[0] != identities[1]:
         raise ValueError("The runs evaluated different GSM8K items")
     passed = abs(scores[0] - scores[1]) <= tolerance + 1e-12
@@ -45,8 +50,8 @@ def main() -> None:
         "--tolerance", type=float, default=0.05, help="Absolute accuracy difference; default five points"
     )
     args = parser.parse_args()
-    configure_coreweave_s3()
     try:
+        configure_coreweave_s3()
         h100 = json.loads(StoragePath(args.h100).read_text())
         tpu = json.loads(StoragePath(args.tpu).read_text())
         passed = check_scores(h100, tpu, args.tolerance)
