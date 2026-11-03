@@ -47,6 +47,8 @@ from experiments.evaluation.evals import evalchemy_run_config
 
 MODEL = "open-athena/Grug-67B-A2B-Antidoom-RLVR1-Step12-2026.10.02"
 REVISION = "50fe2f488aee7730bbccc721024b35229075602e"
+H100_WEIGHTS = MODEL
+V4_WEIGHTS = f"gs://marin-us-central2/checkpoints/serving-score/step12-{REVISION[:12]}/"
 ITEM_COUNT = 100
 RUNTIME_SECONDS = 3600
 POLICY = "experiments/evaluation/campaigns/eval-campaign-09-25-unlabeled/evalchemy-configs/gsm8k-0shot.yaml"
