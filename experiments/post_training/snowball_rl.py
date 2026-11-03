@@ -1,9 +1,10 @@
 # Copyright The Marin Authors
 # SPDX-License-Identifier: Apache-2.0
 
-"""Run a Snowball RL experiment from a preset.
+"""Run a Snowball RL experiment from a preset; gated presets compare the run with pinned controls.
 
-Choose the preset by what the change can affect:
+Every preset except train-long is gated: it reports PASS, FAIL or INVALID against control runs of
+the same preset, with a change label. Choose the preset by what the change can affect:
 
 \b
   speed-short      vLLM engine only; 8 H100, about 10 min. Engine options, kernels, wheels.
@@ -14,18 +15,21 @@ Choose the preset by what the change can affect:
   data-short       256 tasks of a new --tasks selection, 4 answers each; 8 H100, about 15 min.
   data-medium      learning-medium trained on --tasks; 40 H100, about 2 h.
   train-long       the async production loop with checkpoints, HF export and a final
-                   910-task evaluation; 112 H100, or 40 with --layout p40.
+                   910-task evaluation; 112 H100, or 40 with --layout p40. No verdict.
 
 An engine change runs speed-short, then speed-medium. A trainer kernel, parallelism or numerics
 change runs speed-medium, then learning-medium. A new task selection runs data-short, then
-data-medium. Without --run the command prints the plan and the status block; --run submits
-it. --version dev satisfies the launcher; Snowball steps use PRESET_REVISION. Guide:
-docs/recipes/snowball-rl.md.
+data-medium. --require adds a condition of your own, such as a mismatch bound on a speed run or
+a per-category score on a learning run. Without --run the command prints the plan and the status
+block, including the verdict of a finished gated run; --run submits it. --version dev satisfies
+the launcher; Snowball steps use PRESET_REVISION. Guide: docs/recipes/snowball-rl.md.
 
 \b
 Examples, each after `uv run python -m experiments.post_training.snowball_rl`:
   --preset speed-medium --version dev --run
   --preset learning-medium --set trainer.algorithm.advantage_estimator=grpo --version dev --run
+  --preset speed-medium --require 'policy/mismatch/staleness0/log_ratio_abs_max<=0' --version dev --run
+  --preset learning-medium --require 'panel-910/aaii_category/coding/mean>=control' --version dev --run
   --preset data-short --tasks my-selection@2026.11.02 --version dev --run
   --preset train-long --layout p40 --set trainer.max_steps=100 --version dev --run
 """
