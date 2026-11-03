@@ -56,7 +56,7 @@ def main() -> None:
         tpu = json.loads(StoragePath(args.tpu).read_text())
         passed = check_scores(h100, tpu, args.tolerance)
     except Exception as error:
-        print(f"ERROR: {type(error).__name__}; score check could not complete")
+        print(f"ERROR: {type(error).__name__}: {error}; score check could not complete")
         raise SystemExit(2) from error
     raise SystemExit(0 if passed else 1)
 
